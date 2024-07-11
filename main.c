@@ -6,54 +6,69 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/blkdev.h>
+
+fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
+
 struct device_maintainer
-{
+{   
+    //TODO: add mutex
     char *last_bdev_path;
     struct block_device *bdev;
-    fmode_t fmode;
+    // bio
+    //...
 };
 
-static char *last_bdev_path;
-struct block_device *bdev;
-fmode_t mode = FMODE_READ | FMODE_WRITE;
+static struct device_maintainer *maintainer;
+
+static struct device_maintainer *alloc_maintainer(void)
+{
+    struct device_maintainer *target = kzalloc(sizeof(struct device_maintainer), GFP_KERNEL);
+    return target;
+}
 
 static int __init blkm_init(void)
 {
     pr_info("blkm init\n");
+    maintainer = alloc_maintainer();
+    if (!maintainer)
+    {
+        pr_err("Couldn't allocate maintainer\n");
+        return -ENOMEM;
+    }
     return 0;
 }
 
 static void __exit blkm_exit(void)
 {
-    if (last_bdev_path)
+    if (maintainer->last_bdev_path)
     {
-        blkdev_put(bdev, mode);
+        blkdev_put(maintainer->bdev, mode);
     }
 
-    kfree(last_bdev_path);
+    kfree(maintainer->last_bdev_path); //dealloc maintainer
     pr_info("blkm exit\n");
 }
 
 static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
 {
     ssize_t len = strlen(arg) + 1;
-    if (last_bdev_path)
+    if (maintainer->last_bdev_path)
     {
         pr_err("Another device is already opened, please remove previous before opening new one.\n");
         return -EBUSY;
     }
 
-    last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL);
+    maintainer->last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL);
 
-    if (!last_bdev_path)
+    if (!maintainer->last_bdev_path)
     {
         pr_err("Cannot allocate space to read device name\n");
         return -ENOMEM;
     }
 
-    strcpy(last_bdev_path, arg);
+    strcpy(maintainer->last_bdev_path, arg);
 
-    // trying to deal with \n produced by echo TODO: remove
+    // trying to deal with \n produced by echo TODO: remove or switch to echo -n
     char *actual_name = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
 
     if (!actual_name)
@@ -64,15 +79,15 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
 
     for (int i = 0; i < len - 1; i++)
     {
-        actual_name[i] = last_bdev_path[i];
+        actual_name[i] = maintainer->last_bdev_path[i];
     }
     actual_name[len - 2] = '\0';
 
-    bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
+    maintainer->bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
 
-    if (IS_ERR(bdev))
+    if (IS_ERR(maintainer->bdev))
     {
-        pr_err("Opening device '%s' failed, err: %d\n", actual_name, PTR_ERR(bdev));
+        pr_err("Opening device '%s' failed, err: %d\n", actual_name, PTR_ERR(maintainer->bdev));
         goto free_path;
     }
 
@@ -83,8 +98,8 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
     return 0;
 
 free_path:
-    kfree(last_bdev_path);
-    last_bdev_path = NULL;
+    kfree(maintainer->last_bdev_path);
+    maintainer->last_bdev_path = NULL;
     return -ENODEV;
 }
 
@@ -92,14 +107,14 @@ static int blkm_pipe_get_name(char *buf, const struct kernel_param *kp)
 {
     ssize_t len;
 
-    if (!last_bdev_path)
+    if (!maintainer->last_bdev_path)
     {
         pr_err("No opened device\n");
         return -ENODEV;
     }
 
-    len = strlen(last_bdev_path);
-    strcpy(buf, last_bdev_path);
+    len = strlen(maintainer->last_bdev_path);
+    strcpy(buf, maintainer->last_bdev_path);
     return len;
 }
 
@@ -110,15 +125,15 @@ static const struct kernel_param_ops blkm_name_ops = {
 
 static int blkm_pipe_rm(const char *arg, const struct kernel_param *kp)
 {
-    if (!last_bdev_path)
+    if (!maintainer->last_bdev_path)
     {
         pr_err("No device to remove\n");
         return -ENODEV;
     }
 
-    blkdev_put(bdev, mode);
-    kfree(last_bdev_path);
-    last_bdev_path = NULL;
+    blkdev_put(maintainer->bdev, mode);
+    kfree(maintainer->last_bdev_path);
+    maintainer->last_bdev_path = NULL;
     pr_info("device removed\n");
     return 0;
 }
