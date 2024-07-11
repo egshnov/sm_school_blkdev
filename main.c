@@ -8,7 +8,7 @@
 #include <linux/blkdev.h>
 
 static char *last_bdev_path;
-struct block_device *bdev;
+static struct block_device *bdev;
 fmode_t mode = FMODE_READ | FMODE_WRITE;
 
 static int __init blkm_init(void)
