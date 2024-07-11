@@ -40,23 +40,28 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
     last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL);
 
     if (!last_bdev_path)
+    {
+        pr_err("Cannot allocate space to read device name\n");
         return -ENOMEM;
+    }
 
     strcpy(last_bdev_path, arg);
 
-    // trying deal with \n produced by echo TODO: remve
+    // trying to deal with \n produced by echo TODO: remove
     char *actual_name = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
-    
-    if(!actual_name)
+
+    if (!actual_name)
+    {
+        pr_err("Cannot allocate space to save actual device name.\n");
         return -ENOMEM;
-    
+    }
+
     for (int i = 0; i < len - 1; i++)
     {
         actual_name[i] = last_bdev_path[i];
     }
     actual_name[len - 2] = '\0';
 
-    pr_info("recieved %s\n", last_bdev_path);
     bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
 
     if (IS_ERR(bdev))
@@ -82,7 +87,10 @@ static int blkm_pipe_get_name(char *buf, const struct kernel_param *kp)
     ssize_t len;
 
     if (!last_bdev_path)
-        return -EINVAL;
+    {
+        pr_err("No opened device\n");
+        return -ENODEV;
+    }
 
     len = strlen(last_bdev_path);
     strcpy(buf, last_bdev_path);
@@ -98,7 +106,7 @@ static int blkm_pipe_rm(const char *arg, const struct kernel_param *kp)
 {
     if (!last_bdev_path)
     {
-        pr_err("No opened devices\n");
+        pr_err("No device to remove\n");
         return -ENODEV;
     }
 
