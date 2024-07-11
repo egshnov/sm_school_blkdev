@@ -8,7 +8,7 @@
 #include <linux/blkdev.h>
 
 static char *last_bdev_path;
-struct block_device *bdev; // TODO: some kind of dynamic list?
+struct block_device *bdev;
 fmode_t mode = FMODE_READ | FMODE_WRITE;
 
 static int __init blkm_init(void)
@@ -33,7 +33,7 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
     ssize_t len = strlen(arg) + 1;
     if (last_bdev_path)
     {
-        pr_err("Another device is already opened, please remove previous one before opening new one.\n");
+        pr_err("Another device is already opened, please remove previous before opening new one.\n");
         return -EBUSY;
     }
 
@@ -43,15 +43,32 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         return -ENOMEM;
 
     strcpy(last_bdev_path, arg);
+
+    // trying deal with \n produced by echo TODO: remve
+    char *actual_name = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
+    
+    if(!actual_name)
+        return -ENOMEM;
+    
+    for (int i = 0; i < len - 1; i++)
+    {
+        actual_name[i] = last_bdev_path[i];
+    }
+    actual_name[len - 2] = '\0';
+
     pr_info("recieved %s\n", last_bdev_path);
-    bdev = blkdev_get_by_path(last_bdev_path, mode, THIS_MODULE);
+    bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
 
     if (IS_ERR(bdev))
     {
-        pr_err("Opening device '%s' failed, err: %d\n", last_bdev_path, PTR_ERR(bdev));
+        pr_err("Opening device '%s' failed, err: %d\n", actual_name, PTR_ERR(bdev));
         goto free_path;
     }
-    pr_info("opened %s\n", last_bdev_path);
+
+    pr_info("opened %s\n", actual_name);
+
+    // TODO: REMOVE AS WELL AS PREVIOUS!!!!!!
+    kfree(actual_name);
     return 0;
 
 free_path:
@@ -66,11 +83,9 @@ static int blkm_pipe_get_name(char *buf, const struct kernel_param *kp)
 
     if (!last_bdev_path)
         return -EINVAL;
+
     len = strlen(last_bdev_path);
-
     strcpy(buf, last_bdev_path);
-    strcat(buf, "\n\0"); // TODO: redundant ?
-
     return len;
 }
 
@@ -98,11 +113,9 @@ static const struct kernel_param_ops blkm_rm = {
     .get = NULL,
 };
 
-// операция нахождения устройства по имени и его открытия
 MODULE_PARM_DESC(device_pipe, "Device pipe");
 module_param_cb(device_pipe, &blkm_name_ops, NULL, S_IRUGO | S_IWUSR);
 
-// удаление устройства
 MODULE_PARM_DESC(rm_device, "Remove device");
 module_param_cb(rm_device, &blkm_rm, NULL, S_IWUSR);
 
