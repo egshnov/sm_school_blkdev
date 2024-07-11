@@ -6,6 +6,12 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/blkdev.h>
+struct device_maintainer
+{
+    char *last_bdev_path;
+    struct block_device *bdev;
+    fmode_t fmode;
+};
 
 static char *last_bdev_path;
 struct block_device *bdev;
