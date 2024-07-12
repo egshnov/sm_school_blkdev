@@ -7,8 +7,8 @@
 #define BLKDEV_NAME "bdevm"
 #define BLKDEV_MINORS 1
 #define K_SECTOR_SIZE 512
-int major;
-fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
+static int major;
+static fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
 
 static struct device_maintainer
 {
@@ -17,10 +17,11 @@ static struct device_maintainer
     struct block_device *bdev;
     struct gendisk *gd;
 
-} maintainer;
+} maintainer; // make local pointer?
 
 static void my_bio_submit(struct bio *bio)
 {
+    pr_info("try bio_submit\n");
     sector_t sector = bio->bi_iter.bi_sector;
     struct bio_vec bvec;
     struct bvec_iter iter;
@@ -51,14 +52,10 @@ static const struct block_device_operations bio_ops = {
     .submit_bio = my_bio_submit,
 };
 
-//TODO: FIX REQUEST QUEUE
+// TODO: FIX REQUEST QUEUE
 static int create_maintainer(void)
 {
-    memset(&maintainer, 0, sizeof(struct device_maintainer));
-
-    // maintainer.q = blk_alloc_queue(GFP_KERNEL);
-    // blk_queue_make_request(maintainer.q,mfn);
-    // blk_queue_logical_block_size(device_maintainer.q, K_SECTOR_SIZE);
+    memset(&maintainer, 0, sizeof(struct device_maintainer)); // redundant
 
     maintainer.gd = blk_alloc_disk(BLKDEV_MINORS);
 
@@ -67,13 +64,15 @@ static int create_maintainer(void)
         pr_err("Couldn't alloc gendisk\n");
         return -ENOMEM;
     }
-    maintainer.gd->queue = maintainer.q;
+
     maintainer.gd->major = major;
     maintainer.gd->first_minor = 0;
     maintainer.gd->fops = &bio_ops;
     maintainer.gd->private_data = &maintainer;
+
     strcpy(maintainer.gd->disk_name, "bdevm0");
     set_capacity(maintainer.gd, K_SECTOR_SIZE);
+    blk_queue_physical_block_size(maintainer.gd->queue, K_SECTOR_SIZE); //necessary?
 
     int err = add_disk(maintainer.gd);
     if (err)
@@ -81,6 +80,7 @@ static int create_maintainer(void)
         pr_err("Couldn't add gendisk %d\n", err);
         put_disk(maintainer.gd);
     }
+
     return err;
 }
 
