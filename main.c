@@ -18,9 +18,14 @@ static struct device_maintainer
 
 } maintainer; // make local pointer?
 
+static void my_submit_bio(struct bio *bio)
+{
+    pr_info("do nothing\n");
+}
+
 static const struct block_device_operations bio_ops = {
     .owner = THIS_MODULE,
-    //.submit_bio = my_bio_submit,
+    .submit_bio = my_submit_bio,
 };
 
 static int set_maintainer_gendisk(void)
@@ -93,7 +98,7 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         return -EBUSY;
     }
 
-    maintainer.last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL); //NULLPTR by default, set to NULLPTR when device is removed
+    maintainer.last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL); // NULLPTR by default, set to NULLPTR when device is removed
 
     if (!maintainer.last_bdev_path)
     {
