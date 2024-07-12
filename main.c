@@ -9,7 +9,7 @@
 
 static char *last_bdev_path;
 static struct block_device *bdev;
-fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
+static fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
 
 static int __init blkm_init(void)
 {
