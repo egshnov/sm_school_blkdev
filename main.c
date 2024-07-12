@@ -12,51 +12,19 @@ static fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
 
 static struct device_maintainer
 {
-    // add spinlock?
     char *last_bdev_path;
     struct block_device *bdev;
     struct gendisk *gd;
 
 } maintainer; // make local pointer?
 
-static void my_bio_submit(struct bio *bio)
-{
-    pr_info("try bio_submit\n");
-    sector_t sector = bio->bi_iter.bi_sector;
-    struct bio_vec bvec;
-    struct bvec_iter iter;
-
-    bio_for_each_segment(bvec, bio, iter)
-    {
-        pr_info("do nothing\n");
-        // unsigned int len = bvec.bv_len;
-        // int err;
-
-        // /* Don't support un-aligned buffer */
-        // WARN_ON_ONCE((bvec.bv_offset & (SECTOR_SIZE - 1)) ||
-        // 		(len & (SECTOR_SIZE - 1)));
-
-        // err = brd_do_bvec(brd, bvec.bv_page, len, bvec.bv_offset,
-        // 		  bio_op(bio), sector);
-        // if (err) {
-        // 	bio_io_error(bio);
-        // 	return;
-        // }
-        // sector += len >> SECTOR_SHIFT;
-    }
-
-    bio_endio(bio);
-}
 static const struct block_device_operations bio_ops = {
     .owner = THIS_MODULE,
-    .submit_bio = my_bio_submit,
+    //.submit_bio = my_bio_submit,
 };
 
-// TODO: FIX REQUEST QUEUE
-static int create_maintainer(void)
+static int set_maintainer_gendisk(void)
 {
-    memset(&maintainer, 0, sizeof(struct device_maintainer)); // redundant
-
     maintainer.gd = blk_alloc_disk(BLKDEV_MINORS);
 
     if (!maintainer.gd)
@@ -66,13 +34,12 @@ static int create_maintainer(void)
     }
 
     maintainer.gd->major = major;
-    maintainer.gd->first_minor = 0;
+    maintainer.gd->first_minor = 1;
     maintainer.gd->fops = &bio_ops;
     maintainer.gd->private_data = &maintainer;
 
     strcpy(maintainer.gd->disk_name, "bdevm0");
-    set_capacity(maintainer.gd, K_SECTOR_SIZE);
-    blk_queue_physical_block_size(maintainer.gd->queue, K_SECTOR_SIZE); //necessary?
+    set_capacity(maintainer.gd, get_capacity(maintainer.bdev->bd_disk));
 
     int err = add_disk(maintainer.gd);
     if (err)
@@ -86,42 +53,39 @@ static int create_maintainer(void)
 
 static int __init blkm_init(void)
 {
+    pr_info("blkm init\n");
     major = register_blkdev(0, BLKDEV_NAME);
     if (major < 0)
     {
         pr_err("Unable to register block device\n");
         return -EBUSY;
     }
-    int err = create_maintainer();
-    if (err)
-        unregister_blkdev(major, BLKDEV_NAME);
-    else
-        pr_info("blkm init\n");
 
-    return err;
+    return 0;
 }
 
-static void delete_maintainer(void)
+static void free_maintainer(void)
 {
     if (maintainer.last_bdev_path)
     {
+        del_gendisk(maintainer.gd);
+        put_disk(maintainer.gd);
         blkdev_put(maintainer.bdev, mode);
     }
 
     kfree(maintainer.last_bdev_path);
-    del_gendisk(maintainer.gd);
-    put_disk(maintainer.gd);
 }
 
 static void __exit blkm_exit(void)
 {
-    delete_maintainer();
+    free_maintainer();
     unregister_blkdev(major, BLKDEV_NAME);
     pr_info("blkm exit\n");
 }
 
 static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
 {
+
     ssize_t len = strlen(arg) + 1;
     if (maintainer.last_bdev_path)
     {
@@ -129,7 +93,7 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         return -EBUSY;
     }
 
-    maintainer.last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL);
+    maintainer.last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL); //NULLPTR by default, set to NULLPTR when device is removed
 
     if (!maintainer.last_bdev_path)
     {
@@ -155,17 +119,21 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
     actual_name[len - 2] = '\0';
 
     maintainer.bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
+    kfree(actual_name);
 
     if (IS_ERR(maintainer.bdev))
     {
-        pr_err("Opening device '%s' failed, err: %d\n", actual_name, PTR_ERR(maintainer.bdev));
+        pr_err("Opening device failed, err: %d\n", PTR_ERR(maintainer.bdev));
         goto free_path;
     }
 
     pr_info("opened %s\n", actual_name);
 
-    // TODO: REMOVE AS WELL AS PREVIOUS!!!!!!
-    kfree(actual_name);
+    int err = set_maintainer_gendisk();
+    if (err)
+        pr_info("Couldn't create disk");
+    else
+        pr_info("blkm init\n");
     return 0;
 
 free_path:
@@ -205,6 +173,8 @@ static int blkm_pipe_rm(const char *arg, const struct kernel_param *kp)
     blkdev_put(maintainer.bdev, mode);
     kfree(maintainer.last_bdev_path);
     maintainer.last_bdev_path = NULL;
+    del_gendisk(maintainer.gd);
+    put_disk(maintainer.gd);
     pr_info("device removed\n");
     return 0;
 }
