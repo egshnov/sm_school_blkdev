@@ -7,6 +7,7 @@
 #define BLKDEV_NAME "bdevm"
 #define BLKDEV_MINORS 1
 #define K_SECTOR_SIZE 512
+
 static int major;
 static fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
 
@@ -21,6 +22,7 @@ static struct device_maintainer
 static void my_submit_bio(struct bio *bio)
 {
     pr_info("do nothing\n");
+    bio_endio(bio);
 }
 
 static const struct block_device_operations bio_ops = {
@@ -40,12 +42,12 @@ static int set_maintainer_gendisk(void)
 
     maintainer.gd->major = major;
     maintainer.gd->first_minor = 1;
+    maintainer.gd->minors = 1;
     maintainer.gd->fops = &bio_ops;
     maintainer.gd->private_data = &maintainer;
 
     strcpy(maintainer.gd->disk_name, "bdevm0");
     set_capacity(maintainer.gd, get_capacity(maintainer.bdev->bd_disk));
-
     int err = add_disk(maintainer.gd);
     if (err)
     {
@@ -132,11 +134,18 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         goto free_path;
     }
 
-    pr_info("opened %s\n", actual_name);
+    pr_info("opened %s\n", actual_name); // actual_name
 
     int err = set_maintainer_gendisk();
+    // TODO: refactor to goto
     if (err)
+    {
         pr_info("Couldn't create disk");
+        put_disk(maintainer.gd);
+        blkdev_put(maintainer.bdev, mode);
+        kfree(maintainer.last_bdev_path);
+        maintainer.last_bdev_path = NULL;
+    }
     else
         pr_info("blkm init\n");
     return 0;
