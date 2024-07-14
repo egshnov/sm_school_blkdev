@@ -5,23 +5,30 @@
 #include <linux/blkdev.h>
 
 #define BLKDEV_NAME "bdevm"
-#define BLKDEV_MINORS 1
-#define K_SECTOR_SIZE 512
+#define GD_NAME "blkm1"
 
-static int major;
-static fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
+#define BLKDEV_MINORS 1
+#define mode (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
 
 static struct device_maintainer
 {
-    char *last_bdev_path;
+    char *last_bdev_path; // NULLPTR by default, set to NULLPTR when device is removed and memmory is freed
     struct block_device *bdev;
-    struct gendisk *gd;
+    struct gendisk *gd; // NULLPTR by default, set to NULLPTR when device is removed or adding disk fails
+    int major;
 
-} maintainer; // make local pointer?
+} maintainer;
+
+/* seems like having maintainer as a global variable makes having such a struct defined kind of redundant
+   since we do not pass it to any function as a pointer but overhead is small and I believe that it makes code much more readable.
+   Maybe making it a local pointer is a better option but i'm not sure (TODO: ask during code review) */
 
 static void my_submit_bio(struct bio *bio)
 {
-    pr_info("do nothing\n");
+    if (maintainer.last_bdev_path != NULL)
+    {
+        pr_info("CALL ON BIO_SUBMIT DO NOTHING\n");
+    }
     bio_endio(bio);
 }
 
@@ -40,19 +47,20 @@ static int set_maintainer_gendisk(void)
         return -ENOMEM;
     }
 
-    maintainer.gd->major = major;
+    maintainer.gd->major = maintainer.major;
     maintainer.gd->first_minor = 1;
     maintainer.gd->minors = 1;
     maintainer.gd->fops = &bio_ops;
     maintainer.gd->private_data = &maintainer;
 
-    strcpy(maintainer.gd->disk_name, "bdevm0");
+    strcpy(maintainer.gd->disk_name, GD_NAME);
     set_capacity(maintainer.gd, get_capacity(maintainer.bdev->bd_disk));
     int err = add_disk(maintainer.gd);
     if (err)
     {
         pr_err("Couldn't add gendisk %d\n", err);
         put_disk(maintainer.gd);
+        maintainer.gd = NULL;
     }
 
     return err;
@@ -61,8 +69,8 @@ static int set_maintainer_gendisk(void)
 static int __init blkm_init(void)
 {
     pr_info("blkm init\n");
-    major = register_blkdev(0, BLKDEV_NAME);
-    if (major < 0)
+    maintainer.major = register_blkdev(0, BLKDEV_NAME);
+    if (maintainer.major < 0)
     {
         pr_err("Unable to register block device\n");
         return -EBUSY;
@@ -71,22 +79,26 @@ static int __init blkm_init(void)
     return 0;
 }
 
-static void free_maintainer(void)
+static void clear_maintainer(void)
 {
     if (maintainer.last_bdev_path)
     {
-        del_gendisk(maintainer.gd);
-        put_disk(maintainer.gd);
+        if (maintainer.gd)
+        {
+            del_gendisk(maintainer.gd);
+            put_disk(maintainer.gd);
+            maintainer.gd = NULL;
+        }
         blkdev_put(maintainer.bdev, mode);
     }
-
     kfree(maintainer.last_bdev_path);
+    maintainer.last_bdev_path = NULL;
 }
 
 static void __exit blkm_exit(void)
 {
-    free_maintainer();
-    unregister_blkdev(major, BLKDEV_NAME);
+    clear_maintainer();
+    unregister_blkdev(maintainer.major, BLKDEV_NAME);
     pr_info("blkm exit\n");
 }
 
@@ -100,7 +112,7 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         return -EBUSY;
     }
 
-    maintainer.last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL); // NULLPTR by default, set to NULLPTR when device is removed
+    maintainer.last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL);
 
     if (!maintainer.last_bdev_path)
     {
@@ -111,49 +123,42 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
     strcpy(maintainer.last_bdev_path, arg);
 
     // trying to deal with \n produced by echo TODO: remove or switch to echo -n (deal in more adequate manner)
-    char *actual_name = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
-
-    if (!actual_name)
+    // curly brackets to visually separate
     {
-        pr_err("Cannot allocate space to save actual device name.\n");
-        return -ENOMEM;
-    }
+        char *actual_name = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
 
-    for (int i = 0; i < len - 1; i++)
-    {
-        actual_name[i] = maintainer.last_bdev_path[i];
-    }
-    actual_name[len - 2] = '\0';
+        if (!actual_name)
+        {
+            pr_err("Cannot allocate space to save actual device name.\n");
+            kfree(maintainer.last_bdev_path);
+            return -ENOMEM;
+        }
+        strncpy(actual_name, maintainer.last_bdev_path, len - 2);
+        pr_info("strncpy gave %s\n", actual_name);
 
-    maintainer.bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
-    kfree(actual_name);
+        maintainer.bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
+        kfree(actual_name);
+    }
 
     if (IS_ERR(maintainer.bdev))
     {
         pr_err("Opening device failed, err: %d\n", PTR_ERR(maintainer.bdev));
-        goto free_path;
+        kfree(maintainer.last_bdev_path);
+        maintainer.last_bdev_path = NULL;
+        return -ENODEV;
     }
 
-    pr_info("opened %s\n", actual_name); // actual_name
+    pr_info("opened device\n");
 
     int err = set_maintainer_gendisk();
-    // TODO: refactor to goto
     if (err)
     {
         pr_info("Couldn't create disk");
-        put_disk(maintainer.gd);
-        blkdev_put(maintainer.bdev, mode);
-        kfree(maintainer.last_bdev_path);
-        maintainer.last_bdev_path = NULL;
+        clear_maintainer();
+        return err;
     }
-    else
-        pr_info("blkm init\n");
+    pr_info("device instantiated successfully\n");
     return 0;
-
-free_path:
-    kfree(maintainer.last_bdev_path);
-    maintainer.last_bdev_path = NULL;
-    return -ENODEV;
 }
 
 static int blkm_pipe_get_name(char *buf, const struct kernel_param *kp)
@@ -184,11 +189,7 @@ static int blkm_pipe_rm(const char *arg, const struct kernel_param *kp)
         return -ENODEV;
     }
 
-    blkdev_put(maintainer.bdev, mode);
-    kfree(maintainer.last_bdev_path);
-    maintainer.last_bdev_path = NULL;
-    del_gendisk(maintainer.gd);
-    put_disk(maintainer.gd);
+    clear_maintainer();
     pr_info("device removed\n");
     return 0;
 }
