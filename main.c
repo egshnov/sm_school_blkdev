@@ -48,7 +48,7 @@ static void blkm_submit_bio(struct bio *bio)
     pr_info("submitted\n");
     // bioset_exit(pool);
     pr_info("exited\n");
-    //bio_endio(new_bio);
+    // bio_endio(new_bio);
 }
 
 static const struct block_device_operations bio_ops = {
@@ -58,8 +58,8 @@ static const struct block_device_operations bio_ops = {
 
 static int set_maintainer_gendisk(void)
 {
+    pr_info("setting maintainer gendisk\n");
     maintainer.gd = blk_alloc_disk(BLKDEV_MINORS);
-
     if (!maintainer.gd)
     {
         pr_err("Couldn't alloc gendisk\n");
@@ -71,9 +71,9 @@ static int set_maintainer_gendisk(void)
     maintainer.gd->minors = 1;
     maintainer.gd->fops = &bio_ops;
     maintainer.gd->private_data = &maintainer;
-
     strcpy(maintainer.gd->disk_name, GD_NAME);
     set_capacity(maintainer.gd, get_capacity(maintainer.bdev->bd_disk));
+    pr_info("trying to add gendisk\n");
     int err = add_disk(maintainer.gd);
     if (err)
     {
@@ -81,6 +81,7 @@ static int set_maintainer_gendisk(void)
         put_disk(maintainer.gd);
         maintainer.gd = NULL;
     }
+    pr_info("added disk\n");
 
     return err;
 }
