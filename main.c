@@ -17,7 +17,6 @@ static struct device_maintainer
     int major;
 
 } maintainer;
-int cnt = 0;
 
 /* seems like having maintainer as a global variable makes having such a struct defined kind of redundant
    since we do not pass it to any function as a pointer but overhead is small and I believe that it makes code much more readable.
@@ -25,19 +24,31 @@ int cnt = 0;
 
 static void blkm_submit_bio(struct bio *bio)
 {
-    pr_info("trying to submit bio %d\n", cnt++);
-    struct bio *new_bio = bio_alloc_clone(maintainer.bdev, bio, GFP_KERNEL, bio->bi_pool);
+    struct bio_set *pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
+    if (!pool)
+    {
+        pr_err("couldn't alloc pool\n");
+    }
+    pr_info("pool allocated\n");
+    int err = bioset_init(pool, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
+    if (err)
+    {
+        pr_err("couldn't init pool\n");
+    }
+    pr_info("pool initialised\n");
+    struct bio *new_bio = bio_alloc_clone(maintainer.bdev, bio, GFP_KERNEL, pool);
     if (!new_bio)
     {
-        pr_err("Couldn't create bio_clone");
+        pr_err("Couldn't create new bio\n");
     }
-    pr_info("bio allocated\n");
+    pr_info("clone allocated\n");
     bio_chain(new_bio, bio);
-    pr_info("bio chained\n");
+    pr_info("chained\n");
     submit_bio(new_bio);
-    pr_info("new bio submitted\n");
-    bio_endio(bio);
-    pr_info("bio endio succeeded\n");
+    pr_info("submitted\n");
+    // bioset_exit(pool);
+    pr_info("exited\n");
+    //bio_endio(new_bio);
 }
 
 static const struct block_device_operations bio_ops = {
@@ -130,8 +141,6 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
 
     strcpy(maintainer.last_bdev_path, arg);
 
-    // trying to deal with \n produced by echo TODO: remove or switch to echo -n (deal in more adequate manner)
-    // curly brackets to visually separate
     {
         char *actual_name = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
 
