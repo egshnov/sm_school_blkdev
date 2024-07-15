@@ -6,7 +6,6 @@
 
 #define BLKDEV_NAME "bdevm"
 #define GD_NAME "blkm1"
-
 #define BLKDEV_MINORS 1
 #define mode (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
 
@@ -18,23 +17,32 @@ static struct device_maintainer
     int major;
 
 } maintainer;
+int cnt = 0;
 
 /* seems like having maintainer as a global variable makes having such a struct defined kind of redundant
    since we do not pass it to any function as a pointer but overhead is small and I believe that it makes code much more readable.
    Maybe making it a local pointer is a better option but i'm not sure (TODO: ask during code review) */
 
-static void my_submit_bio(struct bio *bio)
+static void blkm_submit_bio(struct bio *bio)
 {
-    if (maintainer.last_bdev_path != NULL)
+    pr_info("trying to submit bio %d\n", cnt++);
+    struct bio *new_bio = bio_alloc_clone(maintainer.bdev, bio, GFP_KERNEL, bio->bi_pool);
+    if (!new_bio)
     {
-        pr_info("CALL ON BIO_SUBMIT DO NOTHING\n");
+        pr_err("Couldn't create bio_clone");
     }
+    pr_info("bio allocated\n");
+    bio_chain(new_bio, bio);
+    pr_info("bio chained\n");
+    submit_bio(new_bio);
+    pr_info("new bio submitted\n");
     bio_endio(bio);
+    pr_info("bio endio succeeded\n");
 }
 
 static const struct block_device_operations bio_ops = {
     .owner = THIS_MODULE,
-    .submit_bio = my_submit_bio,
+    .submit_bio = blkm_submit_bio,
 };
 
 static int set_maintainer_gendisk(void)
