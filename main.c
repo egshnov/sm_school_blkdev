@@ -64,7 +64,7 @@ static int set_maintainer_gendisk(void)
     maintainer.gd->fops = &bio_ops;
     maintainer.gd->private_data = &maintainer;
     maintainer.gd->part0 = maintainer.bdev;
-    maintainer.gd->flags |= GENHD_FL_REMOVABLE;
+    //maintainer.gd->flags |= GENHD_FL_REMOVABLE;
 
     strcpy(maintainer.gd->disk_name, GD_NAME);
     set_capacity(maintainer.gd, get_capacity(maintainer.bdev->bd_disk));
