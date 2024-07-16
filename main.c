@@ -158,7 +158,7 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         return err;
     }
 
-    pr_info("device opened\n");
+    pr_info("device instantiated successfully\n");
     return 0;
 }
 
