@@ -9,8 +9,7 @@
 #define BLKDEV_MINORS 1
 #define mode (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
 
-static struct device_maintainer
-{
+static struct device_maintainer{
     char *last_bdev_path; // NULLPTR by default, set to NULLPTR when device is removed and memmory is freed
     struct block_device *bdev;
     struct gendisk *gd; // NULLPTR by default, set to NULLPTR when device is removed or adding disk fails
@@ -24,31 +23,15 @@ static struct device_maintainer
 
 static void blkm_submit_bio(struct bio *bio)
 {
-    struct bio_set *pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
-    if (!pool)
-    {
-        pr_err("couldn't alloc pool\n");
-    }
-    pr_info("pool allocated\n");
-    int err = bioset_init(pool, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
-    if (err)
-    {
-        pr_err("couldn't init pool\n");
-    }
-    pr_info("pool initialised\n");
+
+    struct bio_set *pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);}
+    
+    bioset_init(pool, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
+    
     struct bio *new_bio = bio_alloc_clone(maintainer.bdev, bio, GFP_KERNEL, pool);
-    if (!new_bio)
-    {
-        pr_err("Couldn't create new bio\n");
-    }
-    pr_info("clone allocated\n");
+
     bio_chain(new_bio, bio);
-    pr_info("chained\n");
     submit_bio(new_bio);
-    pr_info("submitted\n");
-    // bioset_exit(pool);
-    pr_info("exited\n");
-    // bio_endio(new_bio);
 }
 
 static const struct block_device_operations bio_ops = {
@@ -58,7 +41,6 @@ static const struct block_device_operations bio_ops = {
 
 static int set_maintainer_gendisk(void)
 {
-    pr_info("setting maintainer gendisk\n");
     maintainer.gd = blk_alloc_disk(BLKDEV_MINORS);
     if (!maintainer.gd)
     {
@@ -71,17 +53,17 @@ static int set_maintainer_gendisk(void)
     maintainer.gd->minors = 1;
     maintainer.gd->fops = &bio_ops;
     maintainer.gd->private_data = &maintainer;
+    maintainer.gd->part0 = maintainer.bdev;
+
     strcpy(maintainer.gd->disk_name, GD_NAME);
     set_capacity(maintainer.gd, get_capacity(maintainer.bdev->bd_disk));
-    pr_info("trying to add gendisk\n");
+    
     int err = add_disk(maintainer.gd);
-    if (err)
-    {
+    if (err){
         pr_err("Couldn't add gendisk %d\n", err);
         put_disk(maintainer.gd);
         maintainer.gd = NULL;
     }
-    pr_info("added disk\n");
 
     return err;
 }
@@ -90,8 +72,7 @@ static int __init blkm_init(void)
 {
     pr_info("blkm init\n");
     maintainer.major = register_blkdev(0, BLKDEV_NAME);
-    if (maintainer.major < 0)
-    {
+    if (maintainer.major < 0){
         pr_err("Unable to register block device\n");
         return -EBUSY;
     }
@@ -101,12 +82,11 @@ static int __init blkm_init(void)
 
 static void clear_maintainer(void)
 {
-    if (maintainer.last_bdev_path)
-    {
-        if (maintainer.gd)
-        {
+    if (maintainer.last_bdev_path){
+        if (maintainer.gd){
             del_gendisk(maintainer.gd);
             put_disk(maintainer.gd);
+            invalidate_disk(maintainer.gd);
             maintainer.gd = NULL;
         }
         blkdev_put(maintainer.bdev, mode);
@@ -126,16 +106,14 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
 {
 
     ssize_t len = strlen(arg) + 1;
-    if (maintainer.last_bdev_path)
-    {
+    if (maintainer.last_bdev_path){
         pr_err("Another device is already opened, please remove previous before opening new one.\n");
         return -EBUSY;
     }
 
     maintainer.last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL);
 
-    if (!maintainer.last_bdev_path)
-    {
+    if (!maintainer.last_bdev_path){
         pr_err("Cannot allocate space to read device name\n");
         return -ENOMEM;
     }
@@ -145,37 +123,31 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
     {
         char *actual_name = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
 
-        if (!actual_name)
-        {
+        if (!actual_name){
             pr_err("Cannot allocate space to save actual device name.\n");
             kfree(maintainer.last_bdev_path);
             return -ENOMEM;
         }
         strncpy(actual_name, maintainer.last_bdev_path, len - 2);
-        pr_info("strncpy gave %s\n", actual_name);
-
         maintainer.bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
         kfree(actual_name);
     }
 
-    if (IS_ERR(maintainer.bdev))
-    {
+    if (IS_ERR(maintainer.bdev)){
         pr_err("Opening device failed, err: %d\n", PTR_ERR(maintainer.bdev));
+
         kfree(maintainer.last_bdev_path);
         maintainer.last_bdev_path = NULL;
         return -ENODEV;
     }
 
-    pr_info("opened device\n");
-
     int err = set_maintainer_gendisk();
-    if (err)
-    {
-        pr_info("Couldn't create disk");
+    if (err){
+        pr_err("Couldn't create disk");
         clear_maintainer();
         return err;
     }
-    pr_info("device instantiated successfully\n");
+    pr_info("device opened\n");
     return 0;
 }
 
@@ -183,8 +155,7 @@ static int blkm_pipe_get_name(char *buf, const struct kernel_param *kp)
 {
     ssize_t len;
 
-    if (!maintainer.last_bdev_path)
-    {
+    if (!maintainer.last_bdev_path){
         pr_err("No opened device\n");
         return -ENODEV;
     }
@@ -201,8 +172,7 @@ static const struct kernel_param_ops blkm_name_ops = {
 
 static int blkm_pipe_rm(const char *arg, const struct kernel_param *kp)
 {
-    if (!maintainer.last_bdev_path)
-    {
+    if (!maintainer.last_bdev_path){
         pr_err("No device to remove\n");
         return -ENODEV;
     }
@@ -228,4 +198,4 @@ module_exit(blkm_exit);
 
 MODULE_AUTHOR("Egor Shalashnov <shalasheg@gmail.com>");
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("SPBU MM summer school 2024 HW1");
+MODULE_DESCRIPTION("Simple I/O redirection driver");
