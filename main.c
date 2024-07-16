@@ -86,7 +86,6 @@ static void clear_maintainer(void)
         if (maintainer.gd){
             del_gendisk(maintainer.gd);
             put_disk(maintainer.gd);
-            invalidate_disk(maintainer.gd);
             maintainer.gd = NULL;
         }
         blkdev_put(maintainer.bdev, mode);
