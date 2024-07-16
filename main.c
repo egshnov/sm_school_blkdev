@@ -141,7 +141,6 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         strncpy(actual_name, maintainer.last_bdev_path, len - 2);
         maintainer.bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
         kfree(actual_name);
-        actual_name =NULL:
     }
 
     if (IS_ERR(maintainer.bdev)){
