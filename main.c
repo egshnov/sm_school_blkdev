@@ -9,7 +9,8 @@
 #define BLKDEV_MINORS 1
 #define mode (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
 
-static struct device_maintainer{
+static struct device_maintainer
+{
     char *last_bdev_path; // NULLPTR by default, set to NULLPTR when device is removed and memmory is freed
     struct block_device *bdev;
     struct gendisk *gd; // NULLPTR by default, set to NULLPTR when device is removed or adding disk fails
@@ -24,14 +25,24 @@ static struct device_maintainer{
 static void blkm_submit_bio(struct bio *bio)
 {
 
-    struct bio_set *pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);}
-    
-    bioset_init(pool, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
-    
+    struct bio_set *pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
+
+    if (pool == NULL)
+        return;
+
+    int err = bioset_init(pool, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
+    if (err){
+        kfree(pool);
+        return;
+    }
+
     struct bio *new_bio = bio_alloc_clone(maintainer.bdev, bio, GFP_KERNEL, pool);
+    if (!bio)
+        return;
 
     bio_chain(new_bio, bio);
     submit_bio(new_bio);
+    return;
 }
 
 static const struct block_device_operations bio_ops = {
@@ -42,8 +53,7 @@ static const struct block_device_operations bio_ops = {
 static int set_maintainer_gendisk(void)
 {
     maintainer.gd = blk_alloc_disk(BLKDEV_MINORS);
-    if (!maintainer.gd)
-    {
+    if (!maintainer.gd){
         pr_err("Couldn't alloc gendisk\n");
         return -ENOMEM;
     }
@@ -54,10 +64,11 @@ static int set_maintainer_gendisk(void)
     maintainer.gd->fops = &bio_ops;
     maintainer.gd->private_data = &maintainer;
     maintainer.gd->part0 = maintainer.bdev;
+    maintainer.gd->flags |= GENHD_FL_REMOVABLE;
 
     strcpy(maintainer.gd->disk_name, GD_NAME);
     set_capacity(maintainer.gd, get_capacity(maintainer.bdev->bd_disk));
-    
+
     int err = add_disk(maintainer.gd);
     if (err){
         pr_err("Couldn't add gendisk %d\n", err);
@@ -130,6 +141,7 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         strncpy(actual_name, maintainer.last_bdev_path, len - 2);
         maintainer.bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
         kfree(actual_name);
+        actual_name =NULL:
     }
 
     if (IS_ERR(maintainer.bdev)){
@@ -146,6 +158,7 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         clear_maintainer();
         return err;
     }
+
     pr_info("device opened\n");
     return 0;
 }
