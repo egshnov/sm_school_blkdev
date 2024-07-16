@@ -24,7 +24,6 @@ static struct device_maintainer
 
 static void blkm_submit_bio(struct bio *bio)
 {
-
     struct bio_set *pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
 
     if (!pool)
@@ -123,7 +122,6 @@ static void __exit blkm_exit(void)
 
 static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
 {
-
     ssize_t len = strlen(arg) + 1;
     if (maintainer.last_bdev_path)
     {
