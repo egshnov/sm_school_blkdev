@@ -27,22 +27,26 @@ static void blkm_submit_bio(struct bio *bio)
 
     struct bio_set *pool = kzalloc(sizeof(struct bio_set), GFP_KERNEL);
 
-    if (pool == NULL)
-        return;
+    if (!pool)
+        goto interrupt_after_alloc;
 
     int err = bioset_init(pool, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
-    if (err){
-        kfree(pool);
-        return;
-    }
+    if (err)
+        goto interrupt_after_alloc;
 
     struct bio *new_bio = bio_alloc_clone(maintainer.bdev, bio, GFP_KERNEL, pool);
     if (!bio)
-        return;
+        goto interrupt_after_init;
 
     bio_chain(new_bio, bio);
     submit_bio(new_bio);
     return;
+
+interrupt_after_init:
+    bioset_exit(pool);
+interrupt_after_alloc:
+    kfree(pool);
+    bio_endio(bio);
 }
 
 static const struct block_device_operations bio_ops = {
@@ -53,7 +57,8 @@ static const struct block_device_operations bio_ops = {
 static int set_maintainer_gendisk(void)
 {
     maintainer.gd = blk_alloc_disk(BLKDEV_MINORS);
-    if (!maintainer.gd){
+    if (!maintainer.gd)
+    {
         pr_err("Couldn't alloc gendisk\n");
         return -ENOMEM;
     }
@@ -64,13 +69,14 @@ static int set_maintainer_gendisk(void)
     maintainer.gd->fops = &bio_ops;
     maintainer.gd->private_data = &maintainer;
     maintainer.gd->part0 = maintainer.bdev;
-    //maintainer.gd->flags |= GENHD_FL_REMOVABLE;
+    // maintainer.gd->flags |= GENHD_FL_REMOVABLE;
 
     strcpy(maintainer.gd->disk_name, GD_NAME);
     set_capacity(maintainer.gd, get_capacity(maintainer.bdev->bd_disk));
 
     int err = add_disk(maintainer.gd);
-    if (err){
+    if (err)
+    {
         pr_err("Couldn't add gendisk %d\n", err);
         put_disk(maintainer.gd);
         maintainer.gd = NULL;
@@ -83,7 +89,8 @@ static int __init blkm_init(void)
 {
     pr_info("blkm init\n");
     maintainer.major = register_blkdev(0, BLKDEV_NAME);
-    if (maintainer.major < 0){
+    if (maintainer.major < 0)
+    {
         pr_err("Unable to register block device\n");
         return -EBUSY;
     }
@@ -93,8 +100,10 @@ static int __init blkm_init(void)
 
 static void clear_maintainer(void)
 {
-    if (maintainer.last_bdev_path){
-        if (maintainer.gd){
+    if (maintainer.last_bdev_path)
+    {
+        if (maintainer.gd)
+        {
             del_gendisk(maintainer.gd);
             put_disk(maintainer.gd);
             maintainer.gd = NULL;
@@ -116,14 +125,16 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
 {
 
     ssize_t len = strlen(arg) + 1;
-    if (maintainer.last_bdev_path){
+    if (maintainer.last_bdev_path)
+    {
         pr_err("Another device is already opened, please remove previous before opening new one.\n");
         return -EBUSY;
     }
 
     maintainer.last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL);
 
-    if (!maintainer.last_bdev_path){
+    if (!maintainer.last_bdev_path)
+    {
         pr_err("Cannot allocate space to read device name\n");
         return -ENOMEM;
     }
@@ -133,7 +144,8 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
     {
         char *actual_name = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
 
-        if (!actual_name){
+        if (!actual_name)
+        {
             pr_err("Cannot allocate space to save actual device name.\n");
             kfree(maintainer.last_bdev_path);
             return -ENOMEM;
@@ -143,7 +155,8 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
         kfree(actual_name);
     }
 
-    if (IS_ERR(maintainer.bdev)){
+    if (IS_ERR(maintainer.bdev))
+    {
         pr_err("Opening device failed, err: %d\n", PTR_ERR(maintainer.bdev));
 
         kfree(maintainer.last_bdev_path);
@@ -152,7 +165,8 @@ static int blkm_pipe_add(const char *arg, const struct kernel_param *kp)
     }
 
     int err = set_maintainer_gendisk();
-    if (err){
+    if (err)
+    {
         pr_err("Couldn't create disk");
         clear_maintainer();
         return err;
@@ -166,7 +180,8 @@ static int blkm_pipe_get_name(char *buf, const struct kernel_param *kp)
 {
     ssize_t len;
 
-    if (!maintainer.last_bdev_path){
+    if (!maintainer.last_bdev_path)
+    {
         pr_err("No opened device\n");
         return -ENODEV;
     }
@@ -183,7 +198,8 @@ static const struct kernel_param_ops blkm_name_ops = {
 
 static int blkm_pipe_rm(const char *arg, const struct kernel_param *kp)
 {
-    if (!maintainer.last_bdev_path){
+    if (!maintainer.last_bdev_path)
+    {
         pr_err("No device to remove\n");
         return -ENODEV;
     }
