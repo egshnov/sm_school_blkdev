@@ -45,7 +45,7 @@ interrupt_after_init:
     bioset_exit(pool);
 interrupt_after_alloc:
     kfree(pool);
-    bio_endio(bio);
+    bio_io_error(bio);
 }
 
 static const struct block_device_operations bio_ops = {
