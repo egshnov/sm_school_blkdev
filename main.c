@@ -17,10 +17,6 @@ static struct blkmr_device_maintainer {
 
 } maintainer;
 
-/* seems like having maintainer as a global variable makes having such a struct defined kind of redundant
-   since we do not pass it to any function as a pointer but overhead is small and I believe that it makes code much more readable.
-   Maybe making it a local pointer is a better option but i'm not sure (TODO: ask during code review) */
-
 static void blkmr_submit_bio(struct bio *bio)
 {
 	struct bio *new_bio;
@@ -57,7 +53,6 @@ static int blkmr_set_maintainer_gendisk(void)
 	maintainer.gd->minors = 1;
 	maintainer.gd->fops = &blkmr_bio_ops;
 	maintainer.gd->private_data = &maintainer;
-	//maintainer.gd->part0 = maintainer.bdev;
 	maintainer.gd->flags |= GENHD_FL_NO_PART;
 
 	strcpy(maintainer.gd->disk_name, GD_NAME);
@@ -103,6 +98,7 @@ interrupt_on_pool_init:
 	kfree(maintainer.pool);
 	return err;
 interrupt_on_major:
+	kfree(maintainer.pool);
 	pr_err("Unable to register block device\n");
 	return -EBUSY;
 }
@@ -130,11 +126,53 @@ static void __exit blkmr_exit(void)
 	unregister_blkdev(maintainer.major, BLKDEV_NAME);
 	pr_info("blkm exit\n");
 }
-//TODO: parse with \n
+
+static int blkmr_parse_device_name(char *input, char **path_for_maintainer,
+				   char **path_for_search)
+{
+	ssize_t len;
+	char *res;
+	char *iter;
+    
+	len = strlen(input) + 1;
+	if (len == 1)
+		return -EINVAL;
+
+	iter = strchr(input, '\n');
+
+	if (iter) {
+		*path_for_maintainer = kzalloc(sizeof(char) * len, GFP_KERNEL);
+		*path_for_search = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
+
+		if (!(*path_for_maintainer) || !(path_for_search))
+			goto dealloc;
+
+		strcpy(*path_for_maintainer, input);
+		strncpy(*path_for_search, *path_for_maintainer, len - 2);
+
+	} else {
+		*path_for_maintainer = kzalloc(sizeof(char) * len + 1, GFP_KERNEL);
+		*path_for_search = kzalloc(sizeof(char) * (len), GFP_KERNEL);
+		
+        if (!(*path_for_maintainer) || !(path_for_search))
+			goto dealloc;
+		
+        strcpy(*path_for_search, input);
+		snprintf(*path_for_maintainer, len + 1, "%s\n", input);
+	}
+
+	return 0;
+
+dealloc:
+	kfree(*path_for_maintainer);
+	kfree(*path_for_search);
+	*path_for_search = NULL;
+	*path_for_maintainer = NULL;
+	return -ENOMEM;
+}
 static int blkmr_pipe_add(const char *arg, const struct kernel_param *kp)
 {
 	char *actual_name;
-	ssize_t len;
 	int err;
 
 	if (maintainer.last_bdev_path) {
@@ -142,21 +180,10 @@ static int blkmr_pipe_add(const char *arg, const struct kernel_param *kp)
 		return -EBUSY;
 	}
 
-	len = strlen(arg) + 1;
-
-	maintainer.last_bdev_path = kzalloc(sizeof(char) * len, GFP_KERNEL);
-
-	if (!maintainer.last_bdev_path)
+	if (blkmr_parse_device_name(arg, &maintainer.last_bdev_path,
+				    &actual_name))
 		goto no_mem_for_name;
 
-	strcpy(maintainer.last_bdev_path, arg);
-
-	actual_name = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
-
-	if (!actual_name)
-		goto no_mem_for_name;
-
-	strncpy(actual_name, maintainer.last_bdev_path, len - 2);
 	maintainer.bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
 	kfree(actual_name);
 
@@ -172,7 +199,6 @@ static int blkmr_pipe_add(const char *arg, const struct kernel_param *kp)
 
 no_mem_for_name:
 	pr_err("Cannot allocate space to read device name\n");
-	kfree(maintainer.last_bdev_path);
 	return -ENOMEM;
 
 incorrect_path:
