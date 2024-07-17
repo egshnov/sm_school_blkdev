@@ -32,6 +32,7 @@ static void blkmr_submit_bio(struct bio *bio)
 
 	bio_chain(new_bio, bio);
 	submit_bio(new_bio);
+	bio_endio(bio);
 	return;
 
 interrupt:
@@ -56,8 +57,8 @@ static int blkmr_set_maintainer_gendisk(void)
 	maintainer.gd->minors = 1;
 	maintainer.gd->fops = &blkmr_bio_ops;
 	maintainer.gd->private_data = &maintainer;
-	maintainer.gd->part0 = maintainer.bdev;
-	//maintainer.gd->flags |= GENHD_FL_NO_PART;
+	//maintainer.gd->part0 = maintainer.bdev;
+	maintainer.gd->flags |= GENHD_FL_NO_PART;
 
 	strcpy(maintainer.gd->disk_name, GD_NAME);
 	set_capacity(maintainer.gd, get_capacity(maintainer.bdev->bd_disk));
