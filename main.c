@@ -23,7 +23,7 @@ static void blkmr_submit_bio(struct bio *bio)
 
 	new_bio = bio_alloc_clone(maintainer.bdev, bio, GFP_KERNEL,
 				  maintainer.pool);
-	if (!bio)
+	if (!new_bio)
 		goto interrupt;
 
 	bio_chain(new_bio, bio);
