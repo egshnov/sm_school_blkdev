@@ -17,6 +17,11 @@ static struct blkmr_device_maintainer {
 
 } maintainer;
 
+static void blkmr_bio_end_io(struct bio *bio)
+{
+	bio_endio(bio->bi_private);
+	bio_put(bio);
+}
 static void blkmr_submit_bio(struct bio *bio)
 {
 	struct bio *new_bio;
@@ -26,9 +31,10 @@ static void blkmr_submit_bio(struct bio *bio)
 	if (!new_bio)
 		goto interrupt;
 
-	bio_chain(new_bio, bio);
+	new_bio->bi_private = bio;
+	new_bio->bi_end_io = blkmr_bio_end_io;
+
 	submit_bio(new_bio);
-	bio_endio(bio);
 	return;
 
 interrupt:
@@ -85,19 +91,17 @@ static int __init blkmr_init(void)
 
 	err = bioset_init(maintainer.pool, BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
 	if (err)
-		goto interrupt_on_pool_init;
+		goto interrupt;
 
 	maintainer.major = register_blkdev(0, BLKDEV_NAME);
-	if (maintainer.major < 0)
-		goto interrupt_on_major;
-
+	if (maintainer.major < 0) {
+		err = -EBUSY;
+		goto interrupt;
+	}
 	pr_info("blkm init\n");
 	return 0;
 
-interrupt_on_pool_init:
-	kfree(maintainer.pool);
-	return err;
-interrupt_on_major:
+interrupt:
 	kfree(maintainer.pool);
 	pr_err("Unable to register block device\n");
 	return -EBUSY;
@@ -133,7 +137,7 @@ static int blkmr_parse_device_name(char *input, char **path_for_maintainer,
 	ssize_t len;
 	char *res;
 	char *iter;
-    
+
 	len = strlen(input) + 1;
 	if (len == 1)
 		return -EINVAL;
@@ -142,7 +146,8 @@ static int blkmr_parse_device_name(char *input, char **path_for_maintainer,
 
 	if (iter) {
 		*path_for_maintainer = kzalloc(sizeof(char) * len, GFP_KERNEL);
-		*path_for_search = kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
+		*path_for_search =
+			kzalloc(sizeof(char) * (len - 1), GFP_KERNEL);
 
 		if (!(*path_for_maintainer) || !(path_for_search))
 			goto dealloc;
@@ -151,13 +156,14 @@ static int blkmr_parse_device_name(char *input, char **path_for_maintainer,
 		strncpy(*path_for_search, *path_for_maintainer, len - 2);
 
 	} else {
-		*path_for_maintainer = kzalloc(sizeof(char) * len + 1, GFP_KERNEL);
+		*path_for_maintainer =
+			kzalloc(sizeof(char) * len + 1, GFP_KERNEL);
 		*path_for_search = kzalloc(sizeof(char) * (len), GFP_KERNEL);
-		
-        if (!(*path_for_maintainer) || !(path_for_search))
+
+		if (!(*path_for_maintainer) || !(path_for_search))
 			goto dealloc;
-		
-        strcpy(*path_for_search, input);
+
+		strcpy(*path_for_search, input);
 		snprintf(*path_for_maintainer, len + 1, "%s\n", input);
 	}
 
