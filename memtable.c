@@ -9,7 +9,7 @@ struct byte_array {
 	size_t data_size;
 };
 
-static struct *byte_array byte_array_create(uint8_t *data, size_t data_size)
+struct *byte_array byte_array_create(uint8_t *data, size_t data_size)
 {
 	struct byte_array *res = kzalloc(sizeof(*res), GFP_KERNEL);
 	if (!res)
@@ -29,7 +29,7 @@ dealloc:
 	return NULL;
 }
 
-static void byte_array_free(struct byte_array *arr)
+void byte_array_free(struct byte_array *arr)
 {
 	if (arr) {
 		kfree(arr->data);
@@ -53,7 +53,7 @@ static int __byte_array_compare(uint8_t *lhs_data, size_t lhs_data_size,
 	return 0;
 };
 
-static int byte_array_compare(struct byte_array *lhs, struct byte_array *rhs)
+int byte_array_compare(struct byte_array *lhs, struct byte_array *rhs)
 {
 	return __byte_array_compare(lhs->data, lhs->data_size, rhs->data,
 				    rhs->data_size);
@@ -130,7 +130,6 @@ static char *bap_to_str(struct byte_array_pair *bap)
 	res[i] = '\0';
 	return res;
 }
-
 
 //TODO: ADD CONDITIONAL COMPILATION FOR SKIP_LIST WHEN READY
 /*struct for wrapping kv - pairs to use with kernels rb_tree*/
@@ -235,7 +234,7 @@ no_mem:
 }
 
 /* functions visible from memtable interface */
-struct lsm_memtable *lsblk_create_memtable()
+struct lsm_memtable *lsm_create_memtable()
 {
 	struct lsm_memtable *new_table = kzalloc(sizeof(*new_table));
 	if (!new_table)
@@ -256,7 +255,8 @@ void lsm_free_memtable(struct lsm_memtable *table)
 void lsm_memtable_remove(struct lsm_memtable *table, uint8_t *key,
 			 size_t key_size)
 {
-	struct mtb_node *data = mtb_search(&(table->root), key, key_size);
+	struct mtb_node *dapointerta =
+		mtb_search(&(table->root), key, key_size);
 	if (data) {
 		table->byte_size -= bap_data_size(data->bap);
 		rb_erase(data->node, table->root);
@@ -278,4 +278,14 @@ int lsm_memtable_add(struct lsm_memtable *table, uint8_t *key, size_t key_size,
 	//TODO: flush if too big here or in outer scope?
 
 	return res;
+}
+
+struct byte_array *lsm_memtable_get(struct lsm_memtable *table, uint8_t *key,
+				    size_t key_size)
+{
+	struct mtb_node *target = mtb_search(&(table->root), key, key_size);
+	if (!target)
+		return NULL;
+    
+	return target->bap->value;
 }
