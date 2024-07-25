@@ -9,6 +9,13 @@ struct lsm_bloom_filter {
 	size_t num_items;
 };
 
+/*TODO: обусдить требуемый размер блум фильтра и желаемы false_positive_rate
+  передавать в функцию значения полученные по формулам:
+  size = (-expectedInsertions * log(falsePositiveRate) / (log(2) * log(2)));
+  num_functions =  ceil(-log(falsePositiveRate) / log(2));
+  самостоятельно этого не сделать т.к. в кернеле не получится использовать floating point operations
+  */
+  
 struct lsm_bloom_filter *bloom_filter_alloc(size_t size, size_t num_functions);
 
 void bloom_filter_free(struct lsm_bloom_filter *filter);

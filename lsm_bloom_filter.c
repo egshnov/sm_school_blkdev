@@ -29,6 +29,8 @@ void bloom_filter_free(struct lsm_bloom_filter *filter)
 	}
 }
 
+//TODO: CHANGE HASHING!!!!!!!!!
+
 void bloom_filter_put(struct lsm_bloom_filter *filter, const void *data,
 		      size_t length)
 {
