@@ -275,7 +275,7 @@ int lsm_memtable_add(struct lsm_memtable *table, uint8_t *key, size_t key_size,
 
 	table->byte_size -= overwritten_bytes;
 	table->byte_size += key_size + value_size;
-	//TODO: flush if too big
+	//TODO: flush if too big here or in outer scope?
 
 	return res;
 }
