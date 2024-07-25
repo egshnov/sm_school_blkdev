@@ -1,6 +1,8 @@
 #ifndef LSBLK_BLFILTER_H
 #define LSBLK_BLFILTER_H
 
+#include "lsm_b_vec.h"
+
 struct lsm_bloom_filter {
 	struct lsm_b_vec *vec;
 	size_t num_hash_func;

@@ -1,5 +1,7 @@
 #include "lsm_bloom_filter.h"
-#include <string.h>
+
+#include <linux/string.h>
+
 
 struct lsm_bloom_filter *bloom_filter_alloc(size_t size, size_t num_hash_func)
 {
