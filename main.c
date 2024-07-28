@@ -3,6 +3,8 @@
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/blkdev.h>
+#include <linux/blk_types.h>
+#include "memtable.h"
 
 #define BLKDEV_NAME "bdevm"
 #define GD_NAME "blkm1"
@@ -14,17 +16,56 @@ static struct blkmr_device_maintainer {
 	struct bio_set *pool;
 	char *last_bdev_path;
 	int major;
+	struct lsm_memtable *memtable;
+	sector_t head;
 
 } maintainer;
+
+static int sequential_write(struct bvec_iter *iter, unsigned int len)
+{
+	int overwritten_bytes;
+	overwritten_bytes = lsm_memtable_add(maintainer.memtable,
+					     iter->bi_sector, maintainer.head);
+	if (overwritten_bytes < 0)
+		goto no_mem;
+
+	iter->bi_sector = maintainer.head;
+	maintainer.head += len >> SECTOR_SHIFT;
+	maintainer.head %= maintainer.bdev->bd_nr_sectors;
+	return overwritten_bytes;
+
+no_mem:
+	pr_err("COULDN'T ALLOCATE MTB_NODE\n");
+	return -ENOMEM;
+}
+
+static int sequential_read(struct bvec_iter *iter)
+{
+	struct mtb_node *target =
+		lsm_memtable_get(maintainer.memtable, iter->bi_sector);
+
+	if (!target)
+		goto unmapped_address;
+	iter->bi_sector = target->physical_addr;
+
+unmapped_address:
+	pr_info("TRYING TO READ FROM UNMAPPED ADDRESS\n");
+	return -EINVAL;
+}
 
 static void blkmr_bio_end_io(struct bio *bio)
 {
 	bio_endio(bio->bi_private);
 	bio_put(bio);
 }
+
 static void blkmr_submit_bio(struct bio *bio)
 {
 	struct bio *new_bio;
+
+	struct bio_vec bvec;
+	struct bvec_iter iter;
+	int dir, err;
 
 	new_bio = bio_alloc_clone(maintainer.bdev, bio, GFP_KERNEL,
 				  maintainer.pool);
@@ -33,6 +74,21 @@ static void blkmr_submit_bio(struct bio *bio)
 
 	new_bio->bi_private = bio;
 	new_bio->bi_end_io = blkmr_bio_end_io;
+	dir = bio_data_dir(bio);
+	err = 0;
+	bio_for_each_segment(bvec, new_bio, iter) {
+		unsigned int len = bvec.bv_len;
+
+		if (dir == WRITE) {
+			pr_info("writing\n");
+			err = sequential_write(&iter, len);
+		} else {
+			pr_info("reading\n");
+			err = sequential_read(&iter);
+		}
+		if (err)
+			goto interrupt;
+	}
 
 	submit_bio(new_bio);
 	return;
@@ -121,6 +177,12 @@ static void blkmr_clear_maintainer(void)
 		put_disk(maintainer.gd);
 		maintainer.gd = NULL;
 	}
+
+	if (maintainer.memtable) {
+		lsm_free_memtable(maintainer.memtable);
+		maintainer.memtable = NULL;
+	}
+	maintainer.head = 0;
 }
 
 static void __exit blkmr_exit(void)
@@ -135,7 +197,6 @@ static int blkmr_parse_device_name(char *input, char **path_for_maintainer,
 				   char **path_for_search)
 {
 	ssize_t len;
-	char *res;
 	char *iter;
 
 	len = strlen(input) + 1;
@@ -192,7 +253,9 @@ static int blkmr_pipe_add(const char *arg, const struct kernel_param *kp)
 
 	maintainer.bdev = blkdev_get_by_path(actual_name, mode, THIS_MODULE);
 	kfree(actual_name);
+	maintainer.head = get_start_sect(maintainer.bdev);
 
+	maintainer.memtable = lsm_create_memtable();
 	if (IS_ERR(maintainer.bdev))
 		goto incorrect_path;
 

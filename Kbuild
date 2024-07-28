@@ -9,6 +9,6 @@ ccflags-y := 	-Wall					\
 		-Werror=format-security			\
 		-Werror=implicit-function-declaration	
 
-blkm-y := main.o
+blkm-y := main.o memtable.o
 
 obj-m := blkm.o
