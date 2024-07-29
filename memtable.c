@@ -56,10 +56,6 @@ static int mtb_insert(struct rb_root *root, sector_t logical_addr,
 {
 	int overwritten_bytes = 0;
 
-	struct mtb_node *data = mtb_node_create(logical_addr, physical_addr);
-	if (!data)
-		goto no_mem;
-
 	struct rb_node **new = &(root->rb_node);
 	struct rb_node *parent = NULL;
 
@@ -67,8 +63,7 @@ static int mtb_insert(struct rb_root *root, sector_t logical_addr,
 		struct mtb_node *this =
 			container_of(*new, struct mtb_node, node);
 
-		int result =
-			compare_addr(data->logical_addr, this->logical_addr);
+		int result = compare_addr(logical_addr, this->logical_addr);
 
 		parent = *new;
 
@@ -79,11 +74,15 @@ static int mtb_insert(struct rb_root *root, sector_t logical_addr,
 		} else {
 			overwritten_bytes = sizeof(sector_t) * 2;
 			this->physical_addr = physical_addr;
-			//kfree(data);
+			return overwritten_bytes;
 		}
 	}
 
 	if (overwritten_bytes == 0) {
+		struct mtb_node *data =
+			mtb_node_create(logical_addr, physical_addr);
+		if (!data)
+			goto no_mem;
 		rb_link_node(&data->node, parent, new);
 		rb_insert_color(&data->node, root);
 	}
