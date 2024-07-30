@@ -9,6 +9,7 @@
 #define BLKDEV_NAME "bdevm"
 #define GD_NAME "blkm1"
 #define mode (FMODE_READ | FMODE_WRITE | FMODE_EXCL)
+#define CONST_REQ_SIZE 4096
 
 static struct blkmr_device_maintainer {
 	struct block_device *bdev;
@@ -21,7 +22,7 @@ static struct blkmr_device_maintainer {
 
 } maintainer;
 
-static int sequential_write(struct bvec_iter *iter, unsigned int len)
+static int sequential_write(struct bvec_iter *iter, unsigned int step)
 {
 	int overwritten_bytes;
 	overwritten_bytes = lsm_memtable_add(maintainer.memtable,
@@ -30,27 +31,27 @@ static int sequential_write(struct bvec_iter *iter, unsigned int len)
 		goto no_mem;
 
 	iter->bi_sector = maintainer.head;
-	maintainer.head += len >> SECTOR_SHIFT;
+	maintainer.head += step;
 	maintainer.head %= maintainer.bdev->bd_nr_sectors;
-	return overwritten_bytes;
+	return overwritten_bytes < 0;
 
 no_mem:
 	pr_err("COULDN'T ALLOCATE MTB_NODE\n");
 	return -ENOMEM;
 }
 
-static int sequential_read(struct bvec_iter *iter)
+static int sequential_read(struct bvec_iter *iter, unsigned int step)
 {
 	struct mtb_node *target =
 		lsm_memtable_get(maintainer.memtable, iter->bi_sector);
-
-	if (!target)
-		goto unmapped_address;
-	iter->bi_sector = target->physical_addr;
-
-unmapped_address:
-	pr_info("TRYING TO READ FROM UNMAPPED ADDRESS\n");
-	return -EINVAL;
+	if (target) {
+		iter->bi_sector = target->physical_addr;
+	} else {
+		iter->bi_sector = maintainer.head;
+		maintainer.head += step;
+		maintainer.head %= maintainer.bdev->bd_nr_sectors;
+	}
+	return 0;
 }
 
 static void blkmr_bio_end_io(struct bio *bio)
@@ -62,10 +63,8 @@ static void blkmr_bio_end_io(struct bio *bio)
 static void blkmr_submit_bio(struct bio *bio)
 {
 	struct bio *new_bio;
-
-	struct bio_vec bvec;
-	struct bvec_iter iter;
 	int dir, err;
+	unsigned int len;
 
 	new_bio = bio_alloc_clone(maintainer.bdev, bio, GFP_KERNEL,
 				  maintainer.pool);
@@ -76,19 +75,14 @@ static void blkmr_submit_bio(struct bio *bio)
 	new_bio->bi_end_io = blkmr_bio_end_io;
 	dir = bio_data_dir(bio);
 	err = 0;
-	bio_for_each_segment(bvec, new_bio, iter) {
-		unsigned int len = bvec.bv_len;
+	len = CONST_REQ_SIZE >> SECTOR_SHIFT;
+	if (dir == WRITE)
+		err = sequential_write(&(new_bio->bi_iter), len);
+	else
+		err = sequential_read(&(new_bio->bi_iter), len);
 
-		if (dir == WRITE) {
-			pr_info("writing\n");
-			err = sequential_write(&iter, len);
-		} else {
-			pr_info("reading\n");
-			err = sequential_read(&iter);
-		}
-		if (err)
-			goto interrupt;
-	}
+	if (err)
+		goto interrupt;
 
 	submit_bio(new_bio);
 	return;
