@@ -9,7 +9,9 @@
 static struct mtb_node *mtb_node_create(sector_t logical_addr,
 					sector_t physical_addr)
 {
-	struct mtb_node *node = kzalloc(sizeof(*node), GFP_KERNEL);
+	struct mtb_node *node;
+
+	node = kzalloc(sizeof(*node), GFP_KERNEL);
 	if (!node)
 		return NULL;
 	node->logical_addr = logical_addr;
@@ -29,7 +31,9 @@ static int compare_addr(sector_t lhs, sector_t rhs)
 }
 static struct mtb_node *mtb_search(struct rb_root *root, sector_t logical_addr)
 {
-	struct rb_node *node = root->rb_node;
+	struct rb_node *node;
+
+	node = root->rb_node;
 	while (node) {
 		struct mtb_node *mt_data =
 			container_of(node, struct mtb_node, node);
@@ -54,16 +58,21 @@ static struct mtb_node *mtb_search(struct rb_root *root, sector_t logical_addr)
 static int mtb_insert(struct rb_root *root, sector_t logical_addr,
 		      sector_t physical_addr)
 {
-	int overwritten_bytes = 0;
+	int overwritten_bytes;
+	struct rb_node **new;
+	struct rb_node *parent;
+	struct mtb_node *data;
+	struct mtb_node *this;
+	int result;
 
-	struct rb_node **new = &(root->rb_node);
-	struct rb_node *parent = NULL;
+	overwritten_bytes = 0;
+	new = &(root->rb_node);
+	parent = NULL;
 
 	while (*new) {
-		struct mtb_node *this =
-			container_of(*new, struct mtb_node, node);
+		this = container_of(*new, struct mtb_node, node);
 
-		int result = compare_addr(logical_addr, this->logical_addr);
+		result = compare_addr(logical_addr, this->logical_addr);
 
 		parent = *new;
 
@@ -79,8 +88,7 @@ static int mtb_insert(struct rb_root *root, sector_t logical_addr,
 	}
 
 	if (overwritten_bytes == 0) {
-		struct mtb_node *data =
-			mtb_node_create(logical_addr, physical_addr);
+		data = mtb_node_create(logical_addr, physical_addr);
 		if (!data)
 			goto no_mem;
 		rb_link_node(&data->node, parent, new);
@@ -95,8 +103,9 @@ no_mem:
 /* functions visible from memtable interface */
 struct lsm_memtable *lsm_create_memtable(void)
 {
-	struct lsm_memtable *new_table =
-		kzalloc(sizeof(*new_table), GFP_KERNEL);
+	struct lsm_memtable *new_table;
+
+	new_table = kzalloc(sizeof(*new_table), GFP_KERNEL);
 	if (!new_table)
 		return NULL;
 
@@ -114,7 +123,9 @@ void lsm_free_memtable(struct lsm_memtable *table)
 
 void lsm_memtable_remove(struct lsm_memtable *table, sector_t logical_addr)
 {
-	struct mtb_node *data = mtb_search(&(table->tree), logical_addr);
+	struct mtb_node *data;
+
+	data = mtb_search(&(table->tree), logical_addr);
 	if (data) {
 		table->byte_size -= sizeof(sector_t) * 2;
 		rb_erase(&(data->node), &(table->tree));
@@ -125,7 +136,9 @@ void lsm_memtable_remove(struct lsm_memtable *table, sector_t logical_addr)
 int lsm_memtable_add(struct lsm_memtable *table, sector_t logical_addr,
 		     sector_t physical_addr)
 {
-	int overwritten_bytes =
+	int overwritten_bytes;
+	
+	overwritten_bytes =
 		mtb_insert(&(table->tree), logical_addr, physical_addr);
 
 	if (overwritten_bytes < 0)
@@ -141,6 +154,7 @@ int lsm_memtable_add(struct lsm_memtable *table, sector_t logical_addr,
 struct mtb_node *lsm_memtable_get(struct lsm_memtable *table,
 				  sector_t logical_addr)
 {
-	struct mtb_node *target = mtb_search(&(table->tree), logical_addr);
+	struct mtb_node *target;
+	target = mtb_search(&(table->tree), logical_addr);
 	return target;
 }

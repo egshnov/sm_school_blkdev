@@ -25,6 +25,7 @@ static struct blkmr_device_maintainer {
 static int sequential_write(struct bvec_iter *iter, unsigned int step)
 {
 	int overwritten_bytes;
+
 	overwritten_bytes = lsm_memtable_add(maintainer.memtable,
 					     iter->bi_sector, maintainer.head);
 	if (overwritten_bytes < 0)
@@ -42,8 +43,9 @@ no_mem:
 
 static int sequential_read(struct bvec_iter *iter, unsigned int step)
 {
-	struct mtb_node *target =
-		lsm_memtable_get(maintainer.memtable, iter->bi_sector);
+	struct mtb_node *target;
+
+	target = lsm_memtable_get(maintainer.memtable, iter->bi_sector);
 	if (target) {
 		iter->bi_sector = target->physical_addr;
 	} else {
