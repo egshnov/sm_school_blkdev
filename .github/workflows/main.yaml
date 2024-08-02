@@ -10,4 +10,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: build
         run: |
-          apt-cache search linux-headers
+          sudo apt install build-essential linux-headers-6.2.0-1016-azure
+          make
