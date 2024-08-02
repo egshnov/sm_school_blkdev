@@ -11,4 +11,4 @@ jobs:
       - name: build
         run: |
           sudo apt install build-essential linux-headers-6.2.0-1016-azure
-          make
+          make ci
