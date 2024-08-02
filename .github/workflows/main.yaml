@@ -1,0 +1,14 @@
+name: CI
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: build
+        run: |
+          sudo apt install build-essential 6.2.0-37-generic
+          make
