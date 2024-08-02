@@ -1,6 +1,6 @@
 # blkmr
 
-Bio-based block device driver module for Linux kernel that redirects I/O operations to the underlying block device.
+Bio-based block device driver module for Linux kernel that implements log-structured storage based on lsm-tree.
 
 ## Kernel version
 
